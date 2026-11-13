@@ -1,111 +1,182 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState, type FormEvent } from "react";
+import { practiceAreas } from "../data";
+
+function classify(value: string): "email" | "phone" | null {
+  const v = value.trim();
+  if (/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(v)) return "email";
+  const digits = v.replace(/[\s\-()+]/g, "");
+  if (/^(91)?[6-9]\d{9}$/.test(digits)) return "phone";
+  return null;
+}
 
 export default function ContactForm() {
+  const [caseType, setCaseType] = useState("");
   const [status, setStatus] = useState("");
+  const [error, setError] = useState("");
+  const [loading, setLoading] = useState(false);
 
-  async function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
-    e.preventDefault();
+  useEffect(() => {
+    const area = new URLSearchParams(window.location.search).get("area");
+    if (area && practiceAreas.some((a) => a.title === area)) {
+      setCaseType(area);
+    }
+  }, []);
 
-    const form = e.currentTarget;
+  async function handleSubmit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setStatus("");
+    setError("");
+
+    const form = event.currentTarget;
     const formData = new FormData(form);
+    const contact = String(formData.get("contact") || "");
+    const kind = classify(contact);
 
-    formData.append(
-      "access_key",
-      process.env.NEXT_PUBLIC_WEB3FORMS_ACCESS_KEY || "",
-    );
-    formData.append("subject", "New Legal Enquiry - Lexora Legal Associates");
+    if (!kind) {
+      setError(
+        "Please enter a valid email address or a 10-digit mobile number.",
+      );
+      return;
+    }
 
-    setStatus("Sending your enquiry...");
+    setLoading(true);
+
+    const payload: Record<string, unknown> = {
+      access_key: process.env.NEXT_PUBLIC_WEB3FORMS_ACCESS_KEY,
+      subject: "New Legal Enquiry - Lexora Legal Associates (Demo)",
+      name: formData.get("name"),
+      contact,
+      case_type: caseType,
+      message: formData.get("message"),
+    };
+    if (kind === "email") payload.email = contact.trim();
+    if (kind === "phone") payload.phone = contact.trim();
 
     try {
       const response = await fetch("https://api.web3forms.com/submit", {
         method: "POST",
-        body: formData,
+        headers: {
+          "Content-Type": "application/json",
+          Accept: "application/json",
+        },
+        body: JSON.stringify(payload),
       });
-
       const result = await response.json();
 
       if (result.success) {
-        setStatus("Thank you! Your enquiry has been submitted successfully.");
-        form.reset();
-      } else {
         setStatus(
-          result.message || "Unable to submit your enquiry. Please try again.",
+          "Thank you. Your enquiry has been sent. We will get back to you soon.",
+        );
+        form.reset();
+        setCaseType("");
+      } else {
+        setError(
+          result.message || "Unable to send your enquiry. Please try again.",
         );
       }
     } catch {
-      setStatus("Unable to submit your enquiry. Please try again.");
+      setError("Unable to send your enquiry. Please try again.");
+    } finally {
+      setLoading(false);
     }
   }
 
+  const fieldClass =
+    "w-full border border-line bg-paper px-4 py-3.5 text-base text-ink outline-none transition placeholder:text-ink/40 focus:border-maroon focus:ring-2 focus:ring-maroon/15";
+  const labelClass = "mb-2 block text-sm font-medium text-ink";
+
   return (
-    <form onSubmit={handleSubmit} className="mt-8 space-y-5">
-      <input
-        type="text"
-        name="name"
-        placeholder="Your Name"
-        required
-        className="w-full border-b border-[#ddd8cd] bg-transparent py-4 text-sm outline-none focus:border-[#a17d42]"
-      />
+    <form onSubmit={handleSubmit} className="space-y-5" noValidate>
+      <div>
+        <label htmlFor="name" className={labelClass}>
+          Your Name
+        </label>
+        <input
+          id="name"
+          name="name"
+          type="text"
+          required
+          autoComplete="name"
+          placeholder="Enter your name"
+          className={fieldClass}
+        />
+      </div>
 
-      <input
-        type="email"
-        name="email"
-        placeholder="Email Address"
-        required
-        className="w-full border-b border-[#ddd8cd] bg-transparent py-4 text-sm outline-none focus:border-[#a17d42]"
-      />
+      <div>
+        <label htmlFor="contact" className={labelClass}>
+          Email or Phone Number
+        </label>
+        <input
+          id="contact"
+          name="contact"
+          type="text"
+          required
+          autoComplete="email"
+          placeholder="Email address or 10-digit mobile number"
+          className={fieldClass}
+        />
+      </div>
 
-      <input
-        type="tel"
-        name="phone"
-        placeholder="Phone Number"
-        required
-        className="w-full border-b border-[#ddd8cd] bg-transparent py-4 text-sm outline-none focus:border-[#a17d42]"
-      />
+      <div>
+        <label htmlFor="case_type" className={labelClass}>
+          Type of Matter
+        </label>
+        <select
+          id="case_type"
+          name="case_type"
+          required
+          value={caseType}
+          onChange={(e) => setCaseType(e.target.value)}
+          className={fieldClass}
+        >
+          <option value="" disabled>
+            Select practice area
+          </option>
+          {practiceAreas.map((area) => (
+            <option key={area.id} value={area.title}>
+              {area.title}
+            </option>
+          ))}
+          <option value="Other Enquiry">Other Enquiry</option>
+        </select>
+      </div>
 
-      <select
-        name="practice_area"
-        defaultValue=""
-        required
-        className="w-full border-b border-[#ddd8cd] bg-white py-4 text-sm text-[#777] outline-none focus:border-[#a17d42]"
-      >
-        <option value="" disabled>
-          Select Practice Area
-        </option>
-        <option>Corporate Law</option>
-        <option>Family Law</option>
-        <option>Property Law</option>
-        <option>Civil Litigation</option>
-        <option>Employment Law</option>
-        <option>Contract Law</option>
-        <option>Other Enquiry</option>
-      </select>
-
-      <textarea
-        name="message"
-        rows={4}
-        placeholder="Briefly describe your enquiry (do not include confidential details)"
-        required
-        className="w-full resize-none border-b border-[#ddd8cd] bg-transparent py-4 text-sm outline-none focus:border-[#a17d42]"
-      />
+      <div>
+        <label htmlFor="message" className={labelClass}>
+          Your Message
+        </label>
+        <textarea
+          id="message"
+          name="message"
+          required
+          rows={5}
+          placeholder="Briefly describe your matter (no confidential details)"
+          className={`${fieldClass} resize-y`}
+        />
+      </div>
 
       <button
         type="submit"
-        className="w-full bg-[#101d30] px-8 py-5 text-xs tracking-widest text-white transition hover:bg-[#263c59]"
+        disabled={loading}
+        className="w-full bg-maroon px-8 py-4 text-xs font-semibold tracking-[0.2em] text-white transition hover:bg-maroon-dark disabled:opacity-50"
       >
-        SEND ENQUIRY
+        {loading ? "SENDING..." : "SEND ENQUIRY"}
       </button>
 
+      {error && (
+        <p role="alert" className="text-sm text-red-700">
+          {error}
+        </p>
+      )}
       {status && (
-        <p className="text-sm leading-6 text-[#80602e]" role="status">
+        <p role="status" className="text-sm text-maroon">
           {status}
         </p>
       )}
 
-      <p className="text-[10px] leading-5 text-[#999]">
+      <p className="text-xs leading-5 text-muted">
         Please do not submit confidential or sensitive legal information through
         this demonstration form.
       </p>
